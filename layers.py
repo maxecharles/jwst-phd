@@ -67,10 +67,8 @@ class DistortionFromSiaf:
         coeffs_dict = aperture.get_polynomial_coefficients()
         coeffs = np.array([coeffs_dict['Sci2IdlX'], coeffs_dict['Sci2IdlY']])
         sci_refs = np.array([aperture.XSciRef, aperture.YSciRef])
-        sci_cens = np.array([aperture.XSciRef, aperture.YSciRef]) + 0.5  # Note this may not be foolproof
-        # sci_cens = np.array([aperture.XSciRef, aperture.YSciRef]) + 50  # Note this may not be foolproof
-        # sci_cens = np.array([aperture.XSciRef, aperture.YSciRef])  # Note this may not be foolproof
-        pixelscale = np.array([aperture.XSciScale, aperture.YSciScale]).mean()  # Note this may not be foolproof
+        sci_cens = np.array([aperture.XSciRef, aperture.YSciRef])  # Note this may not be foolproof
+        pixelscale = 4*0.0164  # np.array([aperture.XSciScale, aperture.YSciScale]).mean()  # this may not be foolproof
         return ApplySiafDistortion(degree, coeffs, sci_refs, sci_cens,
                                    pixelscale / oversample, oversample)
 
@@ -132,16 +130,21 @@ class ApplySiafDistortion(DetectorLayer):
         """
         Applies the distortion from the science (i.e. images) frame to the idealised telescope frame
         """
+
         # Convert sci cen to idl frame
         xidl_cen, yidl_cen = self.distort_coords(self.Sci2Idl[0],
                                                  self.Sci2Idl[1],
                                                  self.sci_cen[0] - self.SciRef[0],
                                                  self.sci_cen[1] - self.SciRef[1])
 
-        # Get paraxial pixel coordinates and detector properties. Added 0.5 to pixel coordinates to match webbpsf
-        xarr, yarr = dl.utils.pixel_coords(int(image.shape[0])) + 0.5
+        # Get paraxial pixel coordinates and detector properties.
+        nx, ny = image.shape
+        nx_half, ny_half = ((nx - 1) / 2., (ny - 1) / 2.)
+        xlin = np.linspace(-1 * nx_half, nx_half, nx)
+        ylin = np.linspace(-1 * ny_half, ny_half, ny)
+        xarr, yarr = np.meshgrid(xlin, ylin)
 
-        # Scale and shift coordinate arrays to 'sci' frame 
+        # Scale and shift coordinate arrays to 'sci' frame
         xnew = xarr / self.oversample + self.sci_cen[0]
         ynew = yarr / self.oversample + self.sci_cen[1]
 
