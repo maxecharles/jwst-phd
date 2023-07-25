@@ -12,49 +12,6 @@ from dLux.detector_layers import DetectorLayer
 
 Array = np.ndarray
 
-"""
-Simple Layers
-"""
-
-
-# # class Cut(dl.detectors.DetectorLayer):
-# class Cut(dLux.detectors.DetectorLayer):
-#     k: int
-#
-#     def __init__(self, k):
-#         super().__init__('Cut')
-#         self.k = int(k)
-#         assert self.k % 2 == 0, "k must be even"
-#
-#     def __call__(self, image):
-#         c = image.shape[0] // 2
-#         s = self.k // 2
-#         return image[c - s:c + s, c - s:c + s]
-#
-#
-# class InvertY(OpticalLayer):
-#     def __init__(self):
-#         super().__init__("InvertY")
-#
-#     def __call__(self, wavefront):
-#         return wavefront.invert_y()
-#
-#
-# class InvertX(OpticalLayer):
-#     def __init__(self):
-#         super().__init__("InvertX")
-#
-#     def __call__(self, wavefront):
-#         return wavefront.invert_x()
-#
-#
-# class InvertXY(OpticalLayer):
-#     def __init__(self):
-#         super().__init__("InvertXY")
-#
-#     def __call__(self, wavefront):
-#         return wavefront.invert_x_and_y()
-
 
 """
 Distortions
@@ -69,8 +26,7 @@ class DistortionFromSiaf:
         sci_refs = np.array([aperture.XSciRef, aperture.YSciRef])
         sci_cens = np.array([aperture.XSciRef, aperture.YSciRef])  # Note this may not be foolproof
         pixelscale = 4*0.0164  # np.array([aperture.XSciScale, aperture.YSciScale]).mean()  # this may not be foolproof
-        return ApplySiafDistortion(degree, coeffs, sci_refs, sci_cens,
-                                   pixelscale / oversample, oversample)
+        return ApplySiafDistortion(degree, coeffs, sci_refs, sci_cens, pixelscale / oversample, oversample)
 
 
 class ApplySiafDistortion(DetectorLayer):
