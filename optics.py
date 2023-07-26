@@ -5,7 +5,7 @@ import jax.numpy as np
 from jax import Array
 import webbpsf
 
-OpticalLayer = lambda: dLux.OpticalLayer
+OpticalLayer = lambda: dLux.optics.OpticalLayer
 
 
 class NIRISSOptics(dLux.optics.AngularOptics):
@@ -17,45 +17,53 @@ class NIRISSOptics(dLux.optics.AngularOptics):
     FDA: OpticalLayer()
     mask: OpticalLayer()
 
-    image_mask: OpticalLayer()
-    FFT_pad: int
-
-    psf_pixel_scale: None
-    psf_npixels: None
-    psf_oversample: None
+    psf_pixel_scale: float
+    psf_npixels: int
+    psf_oversample: float
 
     def __init__(self,
-                 aperture,
-                 FDA,
-                 pupil_mask,
+                 wf_npixels: int = 1024,
+                 aperture=None,
+                 mask=None,
+                 psf_pixel_scale=0.0656,
+                 psf_oversample=4,
+                 psf_npixels=304,
+
+                 FDA=None,
                  aberrations=None,
-                 image_mask=None,
-                 FFT_pad=None,
-                 psf_npixels=256,
-                 psf_oversample=2,
                  ):
         """
 
         """
-        self.diameter = 6.603464
-        self.wf_npixels = 1024
+        NIRISS = webbpsf.NIRISS()
+        NIRISS.pupil_mask = 'MASK_NRM'
+        NIRISS.calc_psf()
 
-        self.aperture = aperture
+        if aperture is None:
+            self.aperture = dLux.Optic(transmission=NIRISS.optsys.planes[0].amplitude,
+                                       opd=NIRISS.optsys.planes[0].opd,
+                                       normalise=True,
+                                       )
+        if FDA is None:
+            self.FDA = dLux.Optic(transmission=NIRISS.optsys.planes[2].amplitude,
+                                  opd=NIRISS.optsys.planes[2].opd,
+                                  )
+        if mask is None:
+            self.mask = np.array(NIRISS.optsys.planes[3].amplitude)
+        self.diameter = find_diameter(NIRISS.optsys)  # finding JWST diameter
+
+        super().__init__(
+            wf_npixels=wf_npixels,
+            diameter=self.diameter,
+            aperture=self.aperture,
+            mask=self.mask,
+            psf_pixel_scale=psf_pixel_scale,
+            psf_oversample=psf_oversample,
+            psf_npixels=psf_npixels,
+        )
+
         self.aberrations = aberrations
-        self.FDA = FDA
-        self.mask = pupil_mask
-
-        # Coronographic stuff
-        self.image_mask = image_mask
-        if self.image_mask is None:
-            self.FFT_pad = None
-        else:
-            self.FFT_pad = FFT_pad
-
-        # PSF Properties
-        self.psf_pixel_scale = 0.0656  # arcsec/pixel
-        self.psf_npixels = psf_npixels
-        self.psf_oversample = psf_oversample
+        self.wf_npixels = wf_npixels
 
     def propagate_mono(self: NIRISSOptics,
                        wavelength: Array,
@@ -75,13 +83,6 @@ class NIRISSOptics(dLux.optics.AngularOptics):
         # Flip and apply FDA
         wf = wf.flip(0)
         wf += self.FDA
-
-        # Optional Coronagraphic Mask
-        if self.image_mask is not None:
-            wf = wf.pad_to(self.FFT_pad)
-            wf = wf.FFT()
-            wf *= self.image_mask
-            wf = wf.IFFT()
 
         # Apply Pupil Mask
         if wf.npixels != self.wf_npixels:
@@ -110,61 +111,3 @@ def find_diameter(optical_system):
     pscale = pupil_plane.pixelscale.to('m/pix').value
     diameter = pscale * pupil_plane.npix
     return diameter
-
-
-class SpecificNIRISSOptics(NIRISSOptics):
-    filter: str = 'F480M'
-    pupil_mask: str = 'MASK_NRM'
-    det_npix: int = 1024
-    pixel_scale: float
-
-    psfs: list
-    planes: list
-    mask_transmission: Array
-
-    def __init__(self,
-                 aberrations=None,
-                 image_mask=None,
-                 FFT_pad=None,
-                 psf_npixels=256,
-                 psf_oversample=4,
-                 ):
-        NIRISS = webbpsf.NIRISS()
-        NIRISS.filter = self.filter
-        NIRISS.pupil_mask = self.pupil_mask
-
-        self.pixel_scale = NIRISS.pixelscale
-        self.psfs = NIRISS.calc_psf()
-        self.planes = NIRISS.optsys.planes
-        self.mask_transmission = np.array(self.planes[3].amplitude)
-
-        self.aperture = dLux.Optic(transmission=NIRISS.optsys.planes[0].amplitude,
-                                   opd=NIRISS.optsys.planes[0].opd,
-                                   normalise=True
-                                   )
-        self.FDA = dLux.Optic(transmission=NIRISS.optsys.planes[2].amplitude,
-                              opd=NIRISS.optsys.planes[2].opd,
-                              )
-
-        super().__init__(self.aperture,
-                         self.FDA,
-                         self.self.mask_transmission,
-                         aberrations,
-                         image_mask,
-                         FFT_pad,
-                         psf_npixels,
-                         psf_oversample,
-                         )
-
-    def get_psf(self):
-        """
-        """
-        # finding wavelengths and spectral weights
-        head = self.psfs[0].header
-        nwavels = head['NWAVES']
-        wavels, weights = [], []
-        for i in range(nwavels):
-            wavels.append(head['WAVE' + str(i)])
-            weights.append(head['WGHT' + str(i)])
-
-        return self.propagate(np.array(wavels), weights=np.array(weights))

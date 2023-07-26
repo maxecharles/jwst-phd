@@ -222,7 +222,7 @@ class ApplyBFE(DetectorLayer):
 
 
 """
-Jax version of the scipy gaussian filter
+Jax version of the scipy gaussian filt
 """
 
 
@@ -246,7 +246,7 @@ def conv_axis(arr, kernel, axis):
 
 def gaussian_filter(arr, sigma):
     """
-    Applies a 1d gaussian filter along each axis of the input array
+    Applies a 1d gaussian filt along each axis of the input array
     
     Note this currently does not work correctly near the edges
     """
@@ -269,7 +269,7 @@ def corr_axis(arr, kernel, axis):
 
 def gaussian_filter_correlate(arr, sigma):
     """
-    Applies a 1d gaussian filter along each axis of the input array
+    Applies a 1d gaussian filt along each axis of the input array
     """
     kernel = gaussian_kernel_1d(sigma)[::-1]
     k = len(kernel) // 2
@@ -310,7 +310,7 @@ class ApplyJitter(DetectorLayer):
 
     def gaussian_filter_correlate(self, arr, sigma):
         """
-        Applies a 1d gaussian filter along each axis of the input array
+        Applies a 1d gaussian filt along each axis of the input array
         """
         kernel = self.gaussian_kernel_1d(sigma)[::-1]
         k = len(kernel) // 2

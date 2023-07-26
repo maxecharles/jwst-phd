@@ -8,7 +8,7 @@ Observation = lambda: dLux.observations.BaseObservation
 Image = lambda: dLux.images.Image
 
 
-class NIRISSInstrument(dLux.instruments.Instrument):
+class NIRISS(dLux.instruments.Instrument):
     """
 
     """
@@ -30,3 +30,15 @@ class NIRISSInstrument(dLux.instruments.Instrument):
         self.detector = detector
         self.observation = observation
         super().__init__(optics=optics, sources=source, detector=detector, observation=observation)
+
+    def normalise(self):
+        """
+        Normalises the source flux to 1.
+        """
+        return self.set('source', self.source.normalise())
+
+    def model(self):
+        """
+        Method to model the Instrument source through the optics, giving the PSF of the instrument.
+        """
+        return self.optics.model(self.source)
