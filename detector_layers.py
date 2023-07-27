@@ -19,7 +19,7 @@ Distortions
 
 
 class DistortionFromSiaf:
-    def __new__(cls, aperture, oversample):
+    def __new__(cls, aperture, oversample=4):
         degree = aperture.Sci2IdlDeg + 1
         coeffs_dict = aperture.get_polynomial_coefficients()
         coeffs = np.array([coeffs_dict['Sci2IdlX'], coeffs_dict['Sci2IdlY']])

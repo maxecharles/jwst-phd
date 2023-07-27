@@ -1,7 +1,8 @@
 import dLux
 from dLux.observations import BaseObservation
-from jax.tree_util import tree_map
-from equinox import tree_at
+import jax.numpy as np
+from jax import Array
+from jax import tree_map
 
 Instrument = lambda: dLux.instruments.BaseInstrument
 
@@ -14,12 +15,13 @@ class NIRISSFilters(BaseObservation):
     """
 
     filters: list
+    spectra: list
 
     def __init__(self, filters: list = None):
         """
-        Initialize a filt object.
         """
         super().__init__()
+
         if filters is None:
             self.filters = ['F480M', 'F430M', 'F380M']
         else:
@@ -29,24 +31,15 @@ class NIRISSFilters(BaseObservation):
             if filt not in ['F480M', 'F430M', 'F380M']:
                 raise ValueError(f"Filter {filt} not supported.")
 
-    @staticmethod
-    def apply_filters(instrument: Instrument, filters: list) -> Instrument:
+        self.spectra = [dLux.Spectrum(**dict(np.load(f'filter_configs/{filt}.npz'))) for filt in self.filters]
+
+    def model(self, instrument: Instrument, *args, **kwargs) -> Array:
         """
         """
-        filter_fn = lambda source: source.add('filt', filters)
 
-        filtered_source = tree_map(
-            f=filter_fn,
-            tree=instrument.source,
-            is_leaf=lambda leaf: isinstance(leaf, dLux.optics.AngularOptics)
-        )
+        psfs = [instrument.set('sources.PointSource.spectrum', spectrum).model() for spectrum in self.spectra]
 
-        # Apply updates
-        return tree_at(
-            where=lambda instrument: instrument.source,
-            pytree=instrument,
-            replace=filtered_source
-        )
-
-    def model(self, instrument: Instrument):
-        pass
+        # set_and_model = lambda spectrum: instrument.set('sources.spectrum', spectrum).model(*args, **kwargs)
+        # leaf_fn = lambda leaf: isinstance(leaf, dLux.spectra.Spectrum)
+        # psfs = tree_map(f=set_and_model, tree=instrument.sources, rest=self.spectra, is_leaf=leaf_fn)
+        return np.array(psfs)
