@@ -9,17 +9,38 @@ from jax import config
 from poppy.zernike import hexike_basis
 
 
-def jwst_hexike_bases(nterms=10, npix=1024, AMI=False):
+def jwst_hexike_bases(nterms=10, npix=1024, AMI=False, AMI_type="masked"):
+    """
+    Generates a basis for each segment of the JWST primary mirror.
+
+    Parameters
+    ----------
+    nterms : int
+        Number of terms in the hexike basis.
+    npix : int
+        Number of pixels in the output basis.
+    AMI : bool
+        Whether to use the AMI mask or not.
+    AMI_type : str
+        Type of AMI basis to generate. Options are 'masked' and 'shifted'.
+
+    """
     assert isinstance(AMI, bool), "AMI must be a boolean"
 
     # Get webbpsf model
     niriss = webbpsf.NIRISS()
 
     if AMI:
-        seg_rad = 0.64 * const.JWST_SEGMENT_RADIUS
-        # shifts from WebbPSF: CV3 on-orbit estimate (RPT028027) + OTIS delta from predicted (037134)
-        shifts = const.JWST_CIRCUMSCRIBED_DIAMETER * np.array([0.0243, -0.0141])
         amplitude_plane = 3
+        if AMI_type == "masked":
+            seg_rad = const.JWST_SEGMENT_RADIUS
+            shifts = np.zeros(2)  # no shift for full pupil
+        elif AMI_type == "shifted":
+            seg_rad = 0.64 * const.JWST_SEGMENT_RADIUS
+            # shifts from WebbPSF: CV3 on-orbit estimate (RPT028027) + OTIS delta from predicted (037134)
+            shifts = const.JWST_CIRCUMSCRIBED_DIAMETER * np.array([0.0243, -0.0141])
+        else:
+            raise ValueError("AMI_type must be 'masked' or 'shifted'")
         keys = [
             "B2-9",
             "B3-11",
@@ -31,11 +52,14 @@ def jwst_hexike_bases(nterms=10, npix=1024, AMI=False):
         ]  # the segments that are used in AMI
         niriss.pupil_mask = "MASK_NRM"
 
-    else:
+    elif not AMI:
         seg_rad = const.JWST_SEGMENT_RADIUS  # TODO check for overlapping pixels
         shifts = np.zeros(2)  # no shift for full pupil
         amplitude_plane = 0
         keys = const.SEGNAMES_WSS  # all mirror segments
+
+    else:
+        raise ValueError("AMI must be a boolean")
 
     niriss_osys = niriss.get_optical_system()
     seg_cens = dict(const.JWST_PRIMARY_SEGMENT_CENTERS)
@@ -58,22 +82,25 @@ def jwst_hexike_bases(nterms=10, npix=1024, AMI=False):
             hexike_basis(nterms, npix, rhos / seg_rad, thetas, outside=0.0)
         )  # appending basis
 
-    if AMI:
-        return (
-            np.flip(np.array(bases), axis=(2, 3)),
-            mask,
-            pscale,
-        )  # need to apply flip for AMI as plane 1 is a flip
+    bases = np.array(bases)
 
-    else:
-        return np.array(bases), mask, pscale
+    if AMI:
+        bases = np.flip(
+            bases, axis=(2, 3)
+        )  # need to apply flip for AMI as plane 1 is a flip
+        if AMI_type == "masked":
+            bases *= transmission
+
+    return bases, mask, pscale
 
 
 if __name__ == "__main__":
     config.update("jax_enable_x64", True)
     plt.rcParams["image.origin"] = "lower"
 
-    def plot_bases(bases, mask, npix, pscale, save=False, edges=False):
+    def plot_bases(bases, npix, pscale, mask=None, save=False, edges=False):
+        if mask is None:
+            mask = np.ones((npix, npix))
         sample_bases = bases.sum(0) * mask
         fig, ax = plt.subplots(2, 5, figsize=(12.5, 5))
 
@@ -117,10 +144,10 @@ if __name__ == "__main__":
             plt.savefig("hexike_bases.pdf", dpi=1000)
         plt.show()
 
-    npix = 1024
+    npix = 512
 
     # bases, mask, pscale = jwst_hexike_bases(npix=npix, AMI=False)
     # plot_bases(bases, mask, npix, pscale)
 
-    AMI_bases, AMI_mask, pscale = jwst_hexike_bases(AMI=True)
-    plot_bases(AMI_bases, AMI_mask, npix, pscale, edges=True)
+    AMI_bases, AMI_mask, pscale = jwst_hexike_bases(AMI=True, AMI_type="masked")
+    plot_bases(AMI_bases, npix, pscale, edges=True)
