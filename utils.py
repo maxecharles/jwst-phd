@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.visualization import simple_norm
+from webbpsf import constants as const
+
 plt.rcParams["image.origin"] = "lower"
 
 
@@ -47,4 +49,51 @@ def plot_and_compare(
 
     if save_fig:
         plt.savefig("psfs.pdf", dpi=400, bbox_inches="tight")
+    plt.show()
+
+
+def plot_bases(bases, npix, pscale, mask=None, save=False, edges=False):
+    if mask is None:
+        mask = np.ones((npix, npix))
+    sample_bases = bases.sum(0) * mask
+    fig, ax = plt.subplots(2, 5, figsize=(12.5, 5))
+
+    fig.subplots_adjust(
+        left=0.01, right=0.99, bottom=0.01, top=0.99, wspace=0.0, hspace=0.0
+    )
+    for i in range(2):
+        for j in range(5):
+            bound = np.array(
+                [sample_bases[i * 5 + j].max(), -sample_bases[i * 5 + j].min()]
+            ).max()
+            ax[i, j].imshow(
+                sample_bases[i * 5 + j],
+                cmap="seismic",
+                vmin=-bound,
+                vmax=bound,
+                extent=(
+                    pscale * -npix / 2,
+                    pscale * npix / 2,
+                    pscale * -npix / 2,
+                    pscale * npix / 2,
+                ),
+            )
+
+            ax[i, j].set(xticks=[], yticks=[])
+
+            if edges:
+                corners = const.JWST_PRIMARY_SEGMENTS
+                for segment in corners:
+                    corner = segment[1].T
+                    ax[i, j].plot(
+                        corner[0],
+                        corner[1],
+                        marker="",
+                        c="k",
+                        alpha=0.5,
+                        linestyle="--",
+                    )
+
+    if save:
+        plt.savefig("hexike_bases.pdf", dpi=1000)
     plt.show()
