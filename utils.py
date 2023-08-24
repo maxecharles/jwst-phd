@@ -14,6 +14,7 @@ def plot_and_compare(
     stretch="sqrt",
     colorbars=False,
     save_fig: bool = False,
+    cbar_label: str = "Relative Intensity",
 ):
     if titles is None:
         titles = ["WebbPSF PSF", r"$\partial$Lux$ PSF"]
@@ -37,8 +38,8 @@ def plot_and_compare(
     ax[1].set(title=titles[1], xticks=ticks, yticks=ticks)
 
     if colorbars:
-        fig.colorbar(c0, label="Relative Intensity")
-        fig.colorbar(c1, label="Relative Intensity")
+        fig.colorbar(c0, label=cbar_label)
+        fig.colorbar(c1, label=cbar_label)
 
     # Residuals
     residuals = np.array(PSF1) - np.array(PSF2)
@@ -52,10 +53,13 @@ def plot_and_compare(
     plt.show()
 
 
-def plot_bases(bases, npix, pscale, mask=None, save=False, edges=False):
+def plot_basis(basis, pscale=None, mask=None, save=False, edges=False):
+    npix = basis.shape[-1]
+    if pscale is None:
+        pscale = 0.0064486953125 * 1024 / npix
     if mask is None:
         mask = np.ones((npix, npix))
-    sample_bases = bases.sum(0) * mask
+    sample_basis = basis.sum(0) * mask
     fig, ax = plt.subplots(2, 5, figsize=(12.5, 5))
 
     fig.subplots_adjust(
@@ -64,10 +68,10 @@ def plot_bases(bases, npix, pscale, mask=None, save=False, edges=False):
     for i in range(2):
         for j in range(5):
             bound = np.array(
-                [sample_bases[i * 5 + j].max(), -sample_bases[i * 5 + j].min()]
+                [sample_basis[i * 5 + j].max(), -sample_basis[i * 5 + j].min()]
             ).max()
             ax[i, j].imshow(
-                sample_bases[i * 5 + j],
+                sample_basis[i * 5 + j],
                 cmap="seismic",
                 vmin=-bound,
                 vmax=bound,
@@ -95,5 +99,51 @@ def plot_bases(bases, npix, pscale, mask=None, save=False, edges=False):
                     )
 
     if save:
-        plt.savefig("hexike_bases.pdf", dpi=1000)
+        plt.savefig("hexike_basis.pdf", dpi=1000)
+    plt.show()
+
+
+def plot_opd(opd, pscale, mask=None):
+    """
+    Plots OPD
+
+    Parameters
+    ----------
+    opd : Array
+        OPD array in nanometers
+    pscale : float
+        Pixel scale in meters per pixel (?)
+    mask : Array
+        Mask array
+    """
+    if mask is None:
+        mask = np.ones_like(opd)
+    bound = np.array([(opd * mask).max(), -(opd * mask).min()]).max()
+    npix = opd.shape[0]
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    c = ax.imshow(
+        opd * mask,
+        extent=(
+            pscale * -npix / 2,
+            pscale * npix / 2,
+            pscale * -npix / 2,
+            pscale * npix / 2,
+        ),
+        vmin=-bound,
+        vmax=bound,
+        cmap="coolwarm",
+    )
+    ax.set(title="JWST AMI Initial OPD", xlabel="x [m]", ylabel="y [m]")
+    corners = const.JWST_PRIMARY_SEGMENTS
+    for segment in corners:
+        corner = segment[1].T
+        ax.plot(
+            corner[0],
+            corner[1],
+            marker="",
+            c="k",
+            alpha=0.5,
+            linestyle="--",
+        )
+    fig.colorbar(c, label="OPD [nm]")
     plt.show()

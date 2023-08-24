@@ -1,44 +1,84 @@
 import webbpsf
 import webbpsf.constants as const
-import dLux as dl
+import dLux
 import dLux.utils as dlu
 import jax.numpy as np
 import numpy
 from matplotlib import pyplot as plt
 from jax import config
 from poppy.zernike import hexike_basis
-from utils import plot_bases
+from utils import plot_basis
+from jax import Array
 
 
-def jwst_hexike_bases(nterms=10, npix=1024, AMI=False, AMI_type="full"):
+def generate_jwst_hexike_basis(
+    npix: int = 1024,
+    radial_orders: Array | list = None,
+    noll_indices: Array | list = None,
+    AMI: bool = False,
+    mask: bool = False,
+):
     """
     Generates a basis for each segment of the JWST primary mirror.
 
     Parameters
     ----------
-    nterms : int
-        Number of terms in the hexike basis.
     npix : int
         Number of pixels in the output basis.
+    radial_orders : Array = None
+        The radial orders of the zernike polynomials to be used for the
+        aberrations. Input of [0, 1] would give [Piston, Tilt X, Tilt Y],
+        [1, 2] would be [Tilt X, Tilt Y, Defocus, Astig X, Astig Y], etc.
+        The order must be increasing but does not have to be consecutive.
+        If you want to specify specific zernikes across radial orders the
+        noll_indices argument should be used instead.
+    noll_indices : Array = None
+        The zernike noll indices to be used for the aberrations. [1, 2, 3]
+        would give [Piston, Tilt X, Tilt Y], [2, 3, 4] would be [Tilt X,
+        Tilt Y, Defocus.
     AMI : bool
         Whether to use the AMI mask or not.
-    AMI_type : str
-        Type of AMI basis to generate. Options are
-        'full' (uses full mirror segment) and 'masked' (uses only AMI hole).
+    mask : bool
+        Whether to apodise the basis with the AMI mask or not. Recommended is False.
 
+    Returns
+    -------
+    basis : Array
+        Array of shape (nsegments, nterms, npix, npix) containing the basis for each segment.
     """
-    assert isinstance(AMI, bool), "AMI must be a boolean"
+
+    # Aberrations
+    if radial_orders is not None:
+        radial_orders = np.array(radial_orders)
+
+        if (radial_orders < 0).any():
+            raise ValueError("Radial orders must be >= 0")
+
+        noll_indices = []
+        for order in radial_orders:
+            start = dlu.triangular_number(order)
+            stop = dlu.triangular_number(order + 1)
+            noll_indices.append(np.arange(start, stop) + 1)
+        noll_indices = np.concatenate(noll_indices)
+
+    elif noll_indices is None:
+        raise ValueError("Must specify either radial_orders or noll_indices")
+
+    if noll_indices is not None:
+        noll_indices = np.array(noll_indices, dtype=int)
+
+    nterms = int(noll_indices.max())
 
     # Get webbpsf model
     niriss = webbpsf.NIRISS()
 
     if AMI:
-        if AMI_type == "full":
-            amplitude_plane = 0
+        if mask is False:
             seg_rad = const.JWST_SEGMENT_RADIUS
             shifts = np.zeros(2)  # no shift for full pupil
-        elif AMI_type == "masked":
-            amplitude_plane = 3
+        elif mask:
+            # "The hexagonal sub-apertures are 0.82 m from one flat side of the hexagon to the other projected onto
+            # the primary, as designed." - Rachel Cooper, 15/8/2023
             seg_rad = (0.82 / 2) / 0.8660254038
             # shifts from WebbPSF: CV3 on-orbit estimate (RPT028027) + OTIS delta from predicted (037134)
             shifts = const.JWST_CIRCUMSCRIBED_DIAMETER * np.array([0.0243, -0.0141])
@@ -56,7 +96,6 @@ def jwst_hexike_bases(nterms=10, npix=1024, AMI=False, AMI_type="full"):
         niriss.pupil_mask = "MASK_NRM"
 
     elif not AMI:
-        amplitude_plane = 0
         seg_rad = const.JWST_SEGMENT_RADIUS  # TODO check for overlapping pixels
         shifts = np.zeros(2)  # no shift for full pupil
         keys = const.SEGNAMES_WSS  # all mirror segments
@@ -68,63 +107,48 @@ def jwst_hexike_bases(nterms=10, npix=1024, AMI=False, AMI_type="full"):
     seg_cens = dict(const.JWST_PRIMARY_SEGMENT_CENTERS)
     pscale = niriss_osys.planes[0].pixelscale.value * 1024 / npix
 
-    # Scale mask
-    transmission = niriss_osys.planes[amplitude_plane].amplitude
-    mask = dl.utils.scale_array(transmission, npix, 1)
-
-    # Generating a basis for each segment
-    bases = []
+    # Generating a basis for each segment (all terms up to highest noll index)
+    basis = []
     for key in keys:  # cycling through segments
         centre = np.array(seg_cens[key]) - shifts
         rhos, thetas = numpy.array(
             dlu.pixel_coordinates(
-                (npix, npix), pscale, offsets=tuple(centre), polar=True
+                npixels=(npix, npix),
+                pixel_scales=pscale,
+                offsets=tuple(centre),
+                polar=True,
             )
         )
-        bases.append(
+        basis.append(
             hexike_basis(nterms, npix, rhos / seg_rad, thetas, outside=0.0)
         )  # appending basis
 
-    bases = np.array(bases)
+    # reducing back down to request noll indices
+    basis = np.array(basis)[:, noll_indices - 1, ...]
 
-    if AMI_type == "masked":
-        bases = np.flip(
-            bases, axis=(2, 3)
+    if mask and AMI is True:
+        # Scale mask
+        transmission = niriss_osys.planes[3].amplitude
+        transmission = dLux.utils.scale_array(transmission, npix, 1)
+        basis = np.flip(
+            basis, axis=(2, 3)
         )  # need to apply flip for AMI as plane 1 is a flip
-        if AMI_type == "masked":
-            bases *= transmission
+        basis *= transmission
 
-    return bases, mask, pscale
-
-
-def scale_bases(coeffs, bases):
-    """
-    Applies Hexike coefficients to the basis functions.
-
-    Parameters
-    ----------
-    coeffs : Array
-        Hexike coefficients in nanometres.
-    bases : Array
-        Hexike basis functions.
-    """
-    if coeffs.shape != bases.shape[:2]:
-        raise ValueError(
-            f"coeffs shape {coeffs.shape} does not match bases shape {bases.shape}"
-        )
-    scaled_bases = bases * coeffs.reshape(*bases.shape[:2], 1, 1)
-    new_opd = scaled_bases.sum(axis=(0, 1))
-    return new_opd
+    return basis
 
 
 if __name__ == "__main__":
     config.update("jax_enable_x64", True)
     plt.rcParams["image.origin"] = "lower"
 
-    npix = 1024
+    # basis, mask, pscale = jwst_hexike_basis(npix=npix, AMI=False)
+    # plot_basis(basis, mask, npix, pscale)
 
-    # bases, mask, pscale = jwst_hexike_bases(npix=npix, AMI=False)
-    # plot_bases(bases, mask, npix, pscale)
-
-    AMI_bases, AMI_mask, pscale = jwst_hexike_bases(AMI=True, AMI_type="shifted")
-    plot_bases(AMI_bases, pscale, edges=True)
+    AMI_basis = generate_jwst_hexike_basis(
+        npix=512,
+        radial_orders=[0, 1, 2, 4],
+        AMI=True,
+        mask=False,
+    )
+    plot_basis(AMI_basis, edges=True)
