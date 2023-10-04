@@ -19,9 +19,9 @@ class JWSTPrimary(dLux.Optic):
     """
 
     def __init__(
-        self: OpticalLayer,
-        transmission: Array = None,
-        opd: Array = None,
+            self: OpticalLayer,
+            transmission: Array = None,
+            opd: Array = None,
     ):
         """
         Parameters
@@ -101,17 +101,17 @@ class NIRISSOptics(dLux.optics.AngularOptics):
     psf_oversample: float
 
     def __init__(
-        self,
-        wf_npixels: int = 1024,
-        aperture=None,
-        mask=None,
-        psf_pixel_scale=0.0656,
-        psf_oversample=4,
-        psf_npixels=304,
-        FDA=None,
-        aberrations=None,
-        zernike_coeffs=None,
-        basis=None,
+            self,
+            wf_npixels: int = 1024,
+            aperture=None,
+            mask=None,
+            psf_pixel_scale=0.0656,
+            psf_oversample=4,
+            psf_npixels=304,
+            FDA=None,
+            aberrations=None,
+            zernike_coeffs=None,
+            basis=None,
     ):
         """ """
         NIRISS = webbpsf.NIRISS()
@@ -158,10 +158,10 @@ class NIRISSOptics(dLux.optics.AngularOptics):
             self.Basis = basis
 
     def propagate_mono(
-        self: NIRISSOptics,
-        wavelength: Array,
-        offset: Array = np.zeros(2),
-        return_wf: bool = False,
+            self: NIRISSOptics,
+            wavelength: Array,
+            offset: Array = np.zeros(2),
+            return_wf: bool = False,
     ) -> Array:
         """ """
         # Create Wavefront and Tilt
@@ -188,6 +188,48 @@ class NIRISSOptics(dLux.optics.AngularOptics):
         return wf.psf
 
 
+class NIRISSAMIOptics(dLux.optics.LayeredOptics):
+
+    def __init__(
+            self,
+            radial_orders: Array = None,
+            hexike_coeffs: Array = None,
+            wf_npixels: int = 1024,
+            oversample: int = 4,
+            wss_date: str = None,
+    ):
+        niriss = webbpsf.NIRISS()  # WebbPSF instrument
+
+        niriss.pupil_mask = "MASK_NRM"  # applies the NRM mask -- remove this line for full pupil simulation
+        if wss_date is not None:
+            niriss.load_wss_opd_by_date(date=wss_date, verbose=False)  # loads the WSS OPD map for the given date
+        niriss.calc_psf()
+        niriss_osys = niriss.get_optical_system()
+
+        planes = niriss_osys.planes  # [Linear Model WSS, Coord inversion, FDA, NRM, Detector]
+        pscale = planes[-1].pixelscale.to("arcsec/pix").value  # arcsec/pix, grabbing pixel scale from detector plane
+
+        super().__init__(
+            wf_npixels=wf_npixels,
+            diameter=planes[0].pixelscale.to("m/pix").value * planes[0].npix,
+            layers=[
+                (dLuxWebbpsf.JWSTAberratedPrimary(
+                    planes[0].amplitude,  # transmission
+                    planes[0].opd,  # WSS opd data
+                    radial_orders=radial_orders,
+                    coefficients=hexike_coeffs,
+                    AMI=True,  # FALSE FOR FULL PUPIL
+                ), "Pupil"),
+                (dLux.Flip(0), "InvertY"),
+                (dLux.Optic(planes[-2].amplitude), "Mask"),
+                (dLux.MFT(
+                    npixels=oversample * 64,
+                    pixel_scale=dlu.arcsec_to_rad(pscale) / oversample),
+                "Propagator"),
+            ]
+        )
+
+
 def find_wavelengths(PSF):
     head = PSF.header
     nwavels = head["NWAVES"]
@@ -206,13 +248,13 @@ def find_diameter(optical_system):
 
 
 def _construct_optics(
-    # self,
-    planes,
-    instrument,
-    wf_npix,
-    oversample=4,
-    clean=False,
-    **kwargs,
+        # self,
+        planes,
+        instrument,
+        wf_npix,
+        oversample=4,
+        clean=False,
+        **kwargs,
 ):
     """Constructs an optics object for the instrument."""
 
@@ -254,7 +296,7 @@ def _construct_optics(
 
     pscale = (planes[-1].pixelscale).to("arcsec/pix").value
     layers.append(
-        dLuxWebbpsf.MFT(npixels=oversample*64, oversample=oversample, pixel_scale=pscale)
+        dLuxWebbpsf.MFT(npixels=oversample * 64, oversample=oversample, pixel_scale=pscale)
     )
 
     # Finally, construct the actual Optics object
